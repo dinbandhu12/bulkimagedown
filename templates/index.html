@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Downloader</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .loading-dots:after {
+            content: '.';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80% { content: '....'; }
+            100% { content: '.....'; }
+        }
+        #progressBar {
+            height: 8px;
+            background: #4a5568;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+            margin-bottom: 8px;
+        }
+        #progressFill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.2s ease-in-out;
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen text-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-4xl font-bold text-center mb-8">Bulk Image Downloader</h1>
+        
+        <div class="grid md:grid-cols-2 gap-8">
+            <div class="glass-effect rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Image Links</h2>
+                <textarea 
+                    id="links" 
+                    class="w-full h-96 bg-gray-800 text-gray-100 rounded-lg p-4"
+                    placeholder="Paste your image links here..."></textarea>
+            </div>
+            
+            <div class="glass-effect rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Download Settings</h2>
+                
+                <div class="mb-6">
+                    <label class="block text-sm font-medium mb-2">Folder Name</label>
+                    <input 
+                        type="text" 
+                        id="folderName" 
+                        class="w-full bg-gray-800 text-gray-100 rounded-lg p-3"
+                        value="images">
+                </div>
+                
+                <button 
+                    id="downloadBtn"
+                    class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg mb-6"
+                    onclick="downloadImages()">
+                    Download Images
+                </button>
+
+                <!-- Progress Bar -->
+                <div id="progressBar">
+                    <div id="progressFill"></div>
+                </div>
+
+                <div id="downloadingStatus" class="hidden">
+                    <div class="text-center mb-4">
+                        <span id="currentCount">0</span>/<span id="totalCount">0</span> images
+                        <span class="loading-dots">downloading</span>
+                    </div>
+                </div>
+
+                <div id="completionStatus" class="text-center text-lg font-semibold hidden">
+                    Total <span id="finalCount">0</span> images downloaded
+                </div>
+
+                <!-- Failed Downloads -->
+                <div id="failedStatus" class="hidden glass-effect rounded-lg p-4 mt-4 text-sm">
+                    <h3 class="text-lg font-semibold mb-2">Failed to Download:</h3>
+                    <ul id="failedList" class="list-disc list-inside text-red-400"></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function downloadImages() {
+            const links = document.getElementById('links').value;
+            const folderName = document.getElementById('folderName').value;
+            const downloadBtn = document.getElementById('downloadBtn');
+            const progressBar = document.getElementById('progressBar');
+            const progressFill = document.getElementById('progressFill');
+            const downloadingStatus = document.getElementById('downloadingStatus');
+            const completionStatus = document.getElementById('completionStatus');
+            const failedStatus = document.getElementById('failedStatus');
+            const currentCount = document.getElementById('currentCount');
+            const totalCount = document.getElementById('totalCount');
+            const finalCount = document.getElementById('finalCount');
+            const failedList = document.getElementById('failedList');
+            
+            if (!links.trim()) {
+                alert('Please enter image links');
+                return;
+            }
+            
+            downloadBtn.disabled = true;
+            downloadingStatus.classList.remove('hidden');
+            completionStatus.classList.add('hidden');
+            failedStatus.classList.add('hidden');
+            progressFill.style.width = '0%'; // Reset progress bar
+            failedList.innerHTML = ''; // Clear failed list
+
+            try {
+                const response = await fetch('http://localhost:5000/download', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        links: links,
+                        folderName: folderName
+                    })
+                });
+
+                const reader = response.body.getReader();
+                const textDecoder = new TextDecoder();
+                
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    const text = textDecoder.decode(value);
+                    const events = text.split('\n\n').filter(Boolean);
+                    
+                    events.forEach(event => {
+                        try {
+                            const data = JSON.parse(event.replace('data: ', '').trim());
+                            const { current, total, failed, complete } = data;
+
+                            currentCount.textContent = current;
+                            totalCount.textContent = total;
+
+                            // Update progress bar
+                            const percentage = ((current / total) * 100).toFixed(2);
+                            progressFill.style.width = `${percentage}%`;
+
+                            // Show failed URLs
+                            if (failed && failed.length > 0) {
+                                failedStatus.classList.remove('hidden');
+                                failedList.innerHTML = failed.map(url => `<li>${url}</li>`).join('');
+                            }
+
+                            if (complete) {
+                                downloadingStatus.classList.add('hidden');
+                                completionStatus.classList.remove('hidden');
+                                finalCount.textContent = current;
+                            }
+                        } catch (err) {
+                            console.error('Error parsing JSON:', err);
+                        }
+                    });
+                }
+            } catch (error) {
+                completionStatus.textContent = 'Error: ' + error.message;
+                completionStatus.classList.remove('hidden');
+            } finally {
+                downloadBtn.disabled = false;
+                downloadingStatus.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
