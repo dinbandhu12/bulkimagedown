@@ -1,0 +1,5 @@
+beautifulsoup4==4.12.3 
+cloudscraper==1.2.71 
+Flask==2.3.3 
+Flask-Cors==3.0.10 
+requests==2.26.0
